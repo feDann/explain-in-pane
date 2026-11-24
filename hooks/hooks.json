@@ -1,0 +1,15 @@
+{
+  "description": "Inside herdr, tell the agent that explain-in-pane can draw explanations in a side pane.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/explain-in-pane/scripts/session-start.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
