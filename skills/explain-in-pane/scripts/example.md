@@ -74,3 +74,28 @@ worker -->|{red: 503, retry}| queue
 ```text
 retry.delay = 30s * 2^attempt
 ```
+
+# A tree
+
+## 1. Why urllib3 is in the build
+
+```tree depth=3
+app (python 3.12)
+  requests 2.31
+    urllib3 2.0
+    certifi
+  {red: pygments 2.16}
+  urllib3 2.0 (*)
+```
+
+## 2. An AST, each field on its edge
+
+```tree
+Assign
+  target: Name (x)
+  value: BinOp (+)
+    left: Constant (2)
+    right: BinOp (*)
+      left: Name (y)
+      right: Constant (3)
+```

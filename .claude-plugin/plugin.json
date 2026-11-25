@@ -1,7 +1,7 @@
 {
   "name": "explain-in-pane",
-  "version": "0.1.0",
-  "description": "Draws explanations (flows, call sequences, bars against a limit, tables, before and after panels) from short Markdown in a herdr pane beside the agent.",
+  "version": "0.2.0",
+  "description": "Draws explanations (flows, call sequences, trees, bars against a limit, tables, before and after panels) from short Markdown in a herdr pane beside the agent.",
   "author": {
     "name": "Daniele Ferrazzo"
   },

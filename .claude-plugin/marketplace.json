@@ -10,7 +10,7 @@
     {
       "name": "explain-in-pane",
       "source": "./",
-      "description": "Draws flows, call sequences, bars, tables and before/after panels from short Markdown in a herdr pane beside the agent."
+      "description": "Draws flows, call sequences, trees, bars, tables and before/after panels from short Markdown in a herdr pane beside the agent."
     }
   ]
 }

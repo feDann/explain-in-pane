@@ -1,13 +1,13 @@
 # explain-in-pane
 
-An agent skill that draws explanations in a [herdr](https://herdr.dev) pane next to the conversation: flows, call sequences, bars against a limit, tables, and before and after panels. The agent writes a few lines of Markdown, and the pane draws them to fit its width.
+An agent skill that draws explanations in a [herdr](https://herdr.dev) pane next to the conversation: flows, call sequences, trees, bars against a limit, tables, and before and after panels. The agent writes a few lines of Markdown, and the pane draws them to fit its width.
 
 > Inspired by [this tweet](https://x.com/amadeus/status/2120673662156354002).
 
 ## Features
 
-- **Markdown in, drawing out.** Boxes and arrows (`flow`), sequence diagrams (`seq`), stacked bars with a limit line (`bars`), panels, tables, lists, footnotes and eleven inline colours. For shapes Markdown cannot express, a page can be a Python drawing ([`textkit`](skills/explain-in-pane/references/textkit.md)).
-- **Fits the pane.** Pages are laid out for the pane's width and redrawn on resize: flows turn vertical, panels stack, tables become records. Each page is checked at 80, 120 and 200 columns first, and a cut label or an error comes back naming the line.
+- **Markdown in, drawing out.** Boxes and arrows (`flow`), sequence diagrams (`seq`), trees such as dependencies or an AST (`tree`), stacked bars with a limit line (`bars`), panels, tables, lists, footnotes and eleven inline colours. For shapes Markdown cannot express, a page can be a Python drawing ([`textkit`](skills/explain-in-pane/references/textkit.md)).
+- **Fits the pane.** Pages are laid out for the pane's width and redrawn on resize: flows turn vertical, trees turn from boxes top down to boxes left to right and only then become text, panels stack, tables become records. Each page is checked at 80, 120 and 200 columns first, and a cut label or an error comes back naming the line.
 - **Stays browsable.** Pages stay until the pane is closed, with nvim keys and the mouse to browse them. The same `# Title` replaces a page in place. Each agent session gets its own pane, opened beside it without taking focus.
 - **The agent draws on its own** when an answer has several moving parts, and answers in text for short answers. You can also ask: "explain it in the pane".
 - **No dependencies.** Python 3 standard library only. Outside herdr, `show.py --plain` prints the drawing as text.
@@ -91,15 +91,39 @@ skills/explain-in-pane/scripts/show.py docs/examples/bars.md
 
 Each row is a stacked bar and the red line is the limit. A row that crosses it prints how far (`+56 over`). Segments with the same name share a colour.
 
+### A tree
+
+````markdown
+# Dependencies
+
+## 1. Why `urllib3` is in the build
+
+```tree depth=3
+app
+  requests 2.31
+    urllib3 2.0
+    certifi
+  rich 13.7
+    pygments
+  urllib3 2.0 (*)
+```
+````
+
+```bash
+skills/explain-in-pane/scripts/show.py docs/examples/tree.md
+```
+
+One node per line, nested by indent. The pane picks the first layout that fits its width, boxes top down, the same boxes turned with the root at the left, then text, and redraws it on resize. `key: node` labels an edge (an AST field), and `layout=` and `depth=` pin the layout and fold a big tree.
+
 ## Writing a page
 
 A page starts with `# Title`, and one call can hold several pages. Inside it:
 
 - `## 1. Section` headings, paragraphs, `- lists`, `> footnotes`, `| tables |` and `---` rules.
-- ```` ```flow ````, ```` ```seq ````, ```` ```bars ```` and `::: panels` for the drawings.
+- ```` ```flow ````, ```` ```seq ````, ```` ```tree ````, ```` ```bars ```` and `::: panels` for the drawings.
 - `{red: text}`, `**bold**` and `` `code` `` inline.
 
-The full format is in [`SKILL.md`](skills/explain-in-pane/SKILL.md), and [`example.md`](skills/explain-in-pane/scripts/example.md) shows every block on two pages. Outside the pane, `show.py --plain --cols 80 page.md` prints a page as text.
+The full format is in [`SKILL.md`](skills/explain-in-pane/SKILL.md), and [`example.md`](skills/explain-in-pane/scripts/example.md) shows every block on three pages. Outside the pane, `show.py --plain --cols 80 page.md` prints a page as text.
 
 ## Keys in the pane
 

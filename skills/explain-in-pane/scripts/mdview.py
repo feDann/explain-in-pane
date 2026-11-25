@@ -3,8 +3,8 @@
 
 The format is in SKILL.md. A document holds pages, each starting with `# Title`. Inside a page:
 `##` sections, paragraphs, `-` and `1.` lists, `>` notes, `|` tables, `---` rules, fenced
-```flow, ```seq and ```bars blocks (any other fence is drawn as code), and `::: panels` with
-`### title` panels side by side. Inline: {red: text}, **bold**, `code`.
+```flow, ```seq, ```bars and ```tree blocks (any other fence is drawn as code), and
+`::: panels` with `### title` panels side by side. Inline: {red: text}, **bold**, `code`.
 
     pages(text)          -> [(title, [(line_no, raw_line)], title_line_no)]   raises MdError
     render(page, cols)   -> Canvas; canvas.notes = [(line_no, warning)]        raises MdError
@@ -216,7 +216,7 @@ def parse(lines):
             kind, _, args = info.partition(" ")
             kind = kind.lower()
             body = lines[i + 1:j]
-            if kind in ("flow", "seq", "bars"):
+            if kind in ("flow", "seq", "bars", "tree"):
                 blocks.append(Block(kind, n, body=body, args=args.strip()))
             else:
                 blocks.append(Block("code", n, body=[r.rstrip() for _, r in body]))
@@ -327,7 +327,7 @@ def _gap(prev, b):
 
 WHAT = {"h2": "heading", "h3": "heading", "p": "paragraph", "li": "list item", "note": "note",
         "hr": "rule", "code": "code block", "table": "table", "bars": "bars", "flow": "flow",
-        "seq": "sequence", "panels": "panels"}
+        "seq": "sequence", "tree": "tree", "panels": "panels"}
 
 
 def draw_blocks(cv, blocks, x, y, width, notes):
@@ -434,6 +434,7 @@ def d_table(cv, b, x, y, width, notes):
             break
         widths[j] -= 1
     if sum(widths) + G * (ncol - 1) > width:
+        cv.degraded += 1
         return _table_stacked(cv, x, y, width, hs, cs)
     xs = [x]
     for w in widths[:-1]:
@@ -630,47 +631,9 @@ def parse_flow(b):
     return list(nodes.values()), edges
 
 
-DIRS = {"─": "lr", "│": "ud", "╭": "rd", "╮": "ld", "╰": "ur", "╯": "ul", "┼": "udlr",
-        "├": "udr", "┤": "udl", "┬": "lrd", "┴": "lru"}
-JOIN = {frozenset(v): k for k, v in DIRS.items()}
-JOIN.update({frozenset("l"): "─", frozenset("r"): "─", frozenset("u"): "│", frozenset("d"): "│"})
-HEADS = {"r": "▶", "l": "◀", "d": "▼", "u": "▲"}
-OPP = {"l": "r", "r": "l", "u": "d", "d": "u"}
-
-
-def _towards(p, q):
-    return "r" if q[0] > p[0] else "l" if q[0] < p[0] else "d" if q[1] > p[1] else "u"
-
-
-def path(cv, pts, color, head=True):
-    """Right-angle line through `pts`, joining lines that earlier paths drew (┼ ├ ┬ ...)."""
-    own = cv.__dict__.setdefault("_lines", set())
-    seq = [pts[0]]
-    for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
-        while (xa, ya) != (xb, yb):
-            xa += (xb > xa) - (xb < xa)
-            ya += (yb > ya) - (yb < ya)
-            seq.append((xa, ya))
-    if len(seq) < 2:
-        return seq
-    for j, (px, py) in enumerate(seq[:-1]):
-        d = {_towards(seq[j], seq[j + 1])}
-        d.add(_towards(seq[j], seq[j - 1]) if j else OPP[_towards(seq[0], seq[1])])
-        if (px, py) in own and 0 <= py < cv.h and 0 <= px < cv.w:
-            d |= set(DIRS.get(cv.cells[py][px][0], ""))
-            cv.cells[py][px][0] = JOIN.get(frozenset(d), "┼")
-            cv.cells[py][px][1] = color
-        else:
-            cv.put(px, py, JOIN.get(frozenset(d), "─"), color)
-            own.add((px, py))
-    if head:
-        cv.put(*seq[-1], HEADS[_towards(seq[-2], seq[-1])], color)
-    return seq
-
-
 def _label_on_line(cv, seq, text, color):
     """Write ` text ` over the straight middle of a drawn path. False when it does not fit."""
-    own = cv.__dict__.setdefault("_lines", set())
+    own = cv._lines
     row = [p for p in seq[1:-1] if p in own and 0 <= p[1] < cv.h and cv.cells[p[1]][p[0]][0] == "─"]
     rows = {}
     for p in row:
@@ -816,18 +779,18 @@ class FlowLayout:
             color = span_color(e.label) or MUTED
             if e.kind == "h":
                 yy, x1, x2 = a.y + 1, a.x + a.w, b.x - 1
-                path(cv, [(x1, yy), (x2, yy)], color)
+                cv.joined_path([(x1, yy), (x2, yy)], color)
                 for ln, ly in zip(self.hlab[id(e)], (yy - 1, yy + 1)):
                     put_line(cv, x1 + (x2 - x1 + 1 - len(ln)) // 2, ly, ln)
             elif e.kind == "v":
                 cx = a.x + a.w // 2
-                path(cv, [(cx, a.y + a.h), (cx, b.y - 1)], color)
+                cv.joined_path([(cx, a.y + a.h), (cx, b.y - 1)], color)
                 text_lines(cv, cx + 2, a.y + a.h + 1, self.vlab[id(e)])
             elif e.kind == "col":
                 (_, c), k = self.P[id(a)], e.lane
                 lx = self.lane_x[c] + 2 * k
                 ya, yb = a.y + a.h - 2, b.y + b.h - 2
-                seq = path(cv, [(a.x + a.w, ya), (lx, ya), (lx, yb), (b.x + b.w, yb)], color)
+                seq = cv.joined_path([(a.x + a.w, ya), (lx, ya), (lx, yb), (b.x + b.w, yb)], color)
                 routed.append((e, seq, color, (lx + 2, (ya + yb) // 2)))
             else:
                 ra, rb = self.P[id(a)][0], self.P[id(b)][0]
@@ -836,7 +799,7 @@ class FlowLayout:
                 ly = self.lane_y(rb if e.kind == "up" else ra, e.lane)
                 start = (xa, a.y - 1) if e.kind == "up" else (xa, a.y + a.h)
                 end = (xb, b.y - 1) if e.kind == "down" else (xb, b.y + b.h)
-                seq = path(cv, [start, (xa, ly), (xb, ly), end], color)
+                seq = cv.joined_path([start, (xa, ly), (xb, ly), end], color)
                 routed.append((e, seq, color, None))
         for e, seq, color, spot in routed:
             if not e.label:
@@ -983,16 +946,390 @@ def d_seq(cv, b, x, y, width, notes):
     return y + 1
 
 
+# -- trees -----------------------------------------------------------------------------------
+_KEY = re.compile(r"^([A-Za-z_][\w.-]*):\s+(\S.*)$")
+TREE_LAYOUTS = ("auto", "top", "left", "side", "list")
+TREE_BOX_ROWS = 40                 # auto keeps boxes only while they stay this short
+TREE_GAP = 2                       # columns between sibling boxes
+TREE_VGAP = 1                      # rows between the boxes of siblings in a column
+TREE_CAPS = (24, 16, 12)           # box text widths the top layout tries, widest first
+TREE_GUIDE = GREY                  # connectors
+
+
+class TreeNode:
+    def __init__(self, label, sub, color, key, line):
+        self.label, self.sub, self.color, self.key, self.line = label, sub, color, key, line
+        self.children = []
+        self.dim = label.startswith(("…", "..."))
+
+
+def parse_tree(b):
+    """The root of the tree a tree block describes: one node per line, nested by indent."""
+    rows = [(ln, len(raw) - len(raw.lstrip(" ")), raw.strip()) for ln, raw in b.body
+            if raw.strip()]
+    if not rows:
+        raise MdError(b.line, "the tree block is empty")
+    root, stack = None, []
+    for ln, ind, s in rows:
+        if s.startswith("\\"):                       # \word: text is a name, not an edge label
+            key, s = None, s[1:].strip()
+        else:
+            m = _KEY.match(s)
+            key, s = (m.group(1), m.group(2)) if m else (None, s)
+        if not s:
+            raise MdError(ln, "a tree line with no text after the backslash")
+        label, sub, color = _node(s, ln)
+        node = TreeNode(label, sub, color, key, ln)
+        if root is None:
+            root, stack = node, [(ind, node)]
+            continue
+        if ind <= rows[0][1]:
+            raise MdError(ln, "a tree has one root: indent this line under its parent"
+                              if ind == rows[0][1] else "this line is indented less than the root")
+        popped = False
+        while stack[-1][0] > ind:
+            stack.pop()
+            popped = True
+        if stack[-1][0] == ind:                    # a sibling of the line above or of an ancestor
+            stack.pop()
+        elif popped:
+            raise MdError(ln, "this indent matches no line above it: line it up with a sibling")
+        stack[-1][1].children.append(node)
+        stack.append((ind, node))
+    return root
+
+
+def _count(n):
+    return sum(1 + _count(c) for c in n.children)
+
+
+def _fold(n, depth, level=0):
+    """Replace everything below `depth` levels with one `… N more` leaf."""
+    if level >= depth and n.children:
+        n.children = [TreeNode(f"… {_count(n)} more", "", None, None, n.line)]
+        return
+    for c in n.children:
+        _fold(c, depth, level + 1)
+
+
+def _tree_line(n):
+    """One line of text for a node: `key: label (sub)`."""
+    out = inline(n.key + ":", MUTED) + [SPACE] if n.key else []
+    out += inline(n.label, n.color or (GREY if n.dim else FG), not n.dim)
+    return out + [SPACE] + inline(f"({n.sub})", MUTED) if n.sub else out
+
+
+class ListLayout:
+    """One node per line under its parent, with ├── └── │ guides. Always fits: it only grows down."""
+
+    kind = "list"
+
+    def __init__(self, root, width):
+        self.rows = []
+
+        def go(n, trail, last, depth):       # trail: does each ancestor have later siblings?
+            self.rows.append((n, trail, last, depth))
+            below = trail + [not last] if depth else []
+            for i, c in enumerate(n.children):
+                go(c, below, i == len(n.children) - 1, depth + 1)
+
+        go(root, [], True, 0)
+        self.depth = max(r[3] for r in self.rows)
+        for self.step in (4, 3, 2):
+            if self.step * self.depth + 12 <= width:
+                break
+        self.need = 2 * self.depth + 12
+        self.lines = [wrap(_tree_line(n), max(1, width - self.step * d))
+                      for n, _, _, d in self.rows]
+        self.height = sum(len(ln) for ln in self.lines)
+
+    def draw(self, cv, x, y):
+        step = self.step
+        for (n, trail, last, d), lines in zip(self.rows, self.lines):
+            guide = "".join(("│" if t else " ") + " " * (step - 1) for t in trail)
+            for i, ln in enumerate(lines):
+                if d:
+                    own = ("└" if last else "├") + "─" * (step - 2) + " " if i == 0 else \
+                          ("│" if not last else " ") + " " * (step - 1)
+                    for k, ch in enumerate(guide + own):
+                        if ch != " ":
+                            cv.put(x + k, y, ch, TREE_GUIDE)
+                put_line(cv, x + step * d, y, ln)
+                y += 1
+
+
+class SideLayout:
+    """Root at the left, children to its right, one row per leaf: app ─┬─ api ─┬─ db."""
+
+    kind = "side"
+
+    def __init__(self, root):
+        self.items, self.rows = [], 0
+        self.width = self._place(root, 0)[1]
+        self.height = self.rows
+
+    def _place(self, n, col):
+        text = _tree_line(n)
+        end = col + len(text)
+        if not n.children:
+            row, self.rows = self.rows, self.rows + 1
+            self.items.append((col, row, text, []))
+            return row, end
+        kids, far = [], end
+        for c in n.children:
+            row, e = self._place(c, end + 5)
+            kids.append(row)
+            far = max(far, e)
+        self.items.append((col, kids[0], text, kids))      # a parent shares its first child's row
+        return kids[0], far
+
+    def draw(self, cv, x, y):
+        for col, row, text, kids in self.items:
+            put_line(cv, x + col, y + row, text)
+            if not kids:
+                continue
+            gx = x + col + len(text) + 2
+            cv.put(gx - 1, y + row, "─", TREE_GUIDE)
+            cv.put(gx, y + row, "┬" if len(kids) > 1 else "─", TREE_GUIDE)
+            cv.put(gx + 1, y + row, "─", TREE_GUIDE)
+            for r in range(kids[0] + 1, kids[-1] + 1):
+                if r in kids:
+                    cv.put(gx, y + r, "└" if r == kids[-1] else "├", TREE_GUIDE)
+                    cv.put(gx + 1, y + r, "─", TREE_GUIDE)
+                else:
+                    cv.put(gx, y + r, "│", TREE_GUIDE)
+
+
+def _box_lines(n, cap):
+    lines = wrap(inline(n.key + ":", MUTED), cap) if n.key else []
+    lines += wrap(inline(n.label, GREY if n.dim else FG, not n.dim), cap)
+    return lines + (wrap(inline(f"({n.sub})", MUTED), cap) if n.sub else [])
+
+
+class TopLayout:
+    """The root on top, each node's children in a row below it, a bus line between."""
+
+    kind = "top"
+
+    def __init__(self, root, cap):
+        self.cap, self.nodes, self.levels = cap, [], []
+        self._size(root)
+        self._depths(root, 0)
+        self._place(root, 0)
+        self.width = root.sw
+        self.ys = [0]
+        for h in self.levels:
+            self.ys.append(self.ys[-1] + h + 1)
+        self.height = self.ys[-1] - 1
+
+    def _size(self, n):
+        n.lines = _box_lines(n, self.cap)
+        n.w = max(len(ln) for ln in n.lines) + 4
+        n.h = len(n.lines) + 2
+        kids = [self._size(c) for c in n.children]
+        n.inner = sum(kids) + TREE_GAP * (len(kids) - 1) if kids else 0
+        n.sw = max(n.w, n.inner)                           # the columns its subtree needs
+        return n.sw
+
+    def _depths(self, n, d):
+        n.d = d
+        self.nodes.append(n)
+        if len(self.levels) <= d:
+            self.levels.append(0)
+        self.levels[d] = max(self.levels[d], n.h)
+        for c in n.children:
+            self._depths(c, d + 1)
+
+    def _place(self, n, x0):
+        """Children side by side in the span [x0, x0 + sw), the parent centred over them."""
+        if not n.children:
+            n.x = x0 + (n.sw - n.w) // 2
+            return
+        cx = x0 + (n.sw - n.inner) // 2
+        for c in n.children:
+            self._place(c, cx)
+            cx += c.sw + TREE_GAP
+        a, z = n.children[0], n.children[-1]
+        mid = (a.x + a.w // 2 + z.x + z.w // 2) // 2
+        m = n.children[len(n.children) // 2]
+        if len(n.children) % 2:                            # one straight line to the middle child
+            mid = m.x + m.w // 2
+        n.x = min(max(mid - n.w // 2, x0), x0 + n.sw - n.w)
+
+    def draw(self, cv, x, y):
+        for n in self.nodes:
+            bx, by = x + n.x, y + self.ys[n.d]
+            cv.box(bx, by, n.w, n.h, "", stroke=n.color or (DIM if n.dim else CYAN))
+            for i, ln in enumerate(n.lines):
+                put_line(cv, bx + (n.w - len(ln)) // 2, by + 1 + i, ln)
+        for n in self.nodes:
+            if not n.children:
+                continue
+            px, top = x + n.x + n.w // 2, y + self.ys[n.d]
+            bottom, bus = top + n.h - 1, top + self.levels[n.d]
+            edge = cv.cells[bottom][px]                # the border cell the connector leaves from
+            stroke = edge[1]
+            edge[0] = " "
+            for c in n.children:
+                cx = x + c.x + c.w // 2
+                cv.joined_path([(px, bottom), (px, bus), (cx, bus), (cx, bus + 1)],
+                               TREE_GUIDE, head=False)
+                cv.cells[bus + 1][cx][0] = "┴"
+            edge[0], edge[1] = "┬", stroke
+
+
+class LeftLayout:
+    """The top layout turned: the root at the left, each node's children in a column to its right."""
+
+    kind = "left"
+
+    def __init__(self, root, cap):
+        self.nodes, self.cols = [], []
+        self._size(root, cap)
+        self._depths(root, 0)
+        self._place(root, 0)
+        self.colx = [0]
+        for w in self.cols:
+            self.colx.append(self.colx[-1] + w + 3)       # a stub, the bus and a run between
+        self.width = self.colx[-1] - 3
+        self.height = root.sh
+
+    def _size(self, n, cap):
+        n.lines = _box_lines(n, cap)
+        n.w = max(len(ln) for ln in n.lines) + 4
+        n.h = len(n.lines) + 2
+        kids = [self._size(c, cap) for c in n.children]
+        n.inner = sum(kids) + TREE_VGAP * (len(kids) - 1) if kids else 0
+        n.sh = max(n.h, n.inner)                           # the rows its subtree needs
+        return n.sh
+
+    def _depths(self, n, d):
+        n.d = d
+        self.nodes.append(n)
+        if len(self.cols) <= d:
+            self.cols.append(0)
+        self.cols[d] = max(self.cols[d], n.w)
+        for c in n.children:
+            self._depths(c, d + 1)
+
+    def _place(self, n, y0):
+        """Children stacked in the rows [y0, y0 + sh), the parent centred beside them."""
+        if not n.children:
+            n.y = y0 + (n.sh - n.h) // 2
+            return
+        cy = y0 + (n.sh - n.inner) // 2
+        for c in n.children:
+            self._place(c, cy)
+            cy += c.sh + TREE_VGAP
+        a, z = n.children[0], n.children[-1]
+        mid = (a.y + a.h // 2 + z.y + z.h // 2) // 2
+        m = n.children[len(n.children) // 2]
+        if len(n.children) % 2:                            # one straight line to the middle child
+            mid = m.y + m.h // 2
+        n.y = min(max(mid - n.h // 2, y0), y0 + n.sh - n.h)
+
+    def draw(self, cv, x, y):
+        for n in self.nodes:
+            bx, by = x + self.colx[n.d], y + n.y
+            cv.box(bx, by, n.w, n.h, "", stroke=n.color or (DIM if n.dim else CYAN))
+            for i, ln in enumerate(n.lines):
+                put_line(cv, bx + (n.w - len(ln)) // 2, by + 1 + i, ln)
+        for n in self.nodes:
+            if not n.children:
+                continue
+            right, row = x + self.colx[n.d] + n.w - 1, y + n.y + n.h // 2
+            bus, left = x + self.colx[n.d + 1] - 2, x + self.colx[n.d + 1]
+            edge = cv.cells[row][right]                    # the border cell the connector leaves
+            stroke = edge[1]
+            edge[0] = " "
+            for c in n.children:
+                to = y + c.y + c.h // 2
+                cv.joined_path([(right, row), (bus, row), (bus, to), (left, to)],
+                               TREE_GUIDE, head=False)
+                cv.cells[to][left][0] = "┤"
+            edge[0], edge[1] = "├", stroke
+
+
+def choose_tree_layout(root, want, width):
+    """The layout to draw `root` in at `width` columns, and the width each one tried needs.
+
+    `auto` takes the first that fits, so a narrower pane only ever moves down this list: boxes
+    top down; the same boxes turned, with the root at the left; the turned boxes with tighter
+    text, then the upright ones; one line per leaf; an indented list. Turning comes before any
+    text is squeezed, and boxes come before any text form. The list always fits.
+    """
+    names = ("top", "left", "side", "list") if want == "auto" else (want,)
+    wide, tight = TREE_CAPS[0], TREE_CAPS[1:]
+    tries = [(n, wide) for n in ("top", "left")] + [(n, c) for n in ("left", "top") for c in tight]
+    need = {}
+    for name, cap in tries:
+        if name in names:
+            box = (TopLayout if name == "top" else LeftLayout)(root, cap)
+            need[name] = box.width
+            if box.width <= width and (want != "auto" or box.height <= TREE_BOX_ROWS):
+                return box, need
+    if "side" in names:
+        side = SideLayout(root)
+        need["side"] = side.width
+        if side.width <= width:
+            return side, need
+    return ListLayout(root, min(width, TEXT_W)), need
+
+
+def d_tree(cv, b, x, y, width, notes):
+    warn = _warner(notes, b.line)
+    try:
+        opts = dict(kv.split("=", 1) for kv in shlex.split(b.args))
+    except ValueError:
+        raise MdError(b.line, "tree options look like: ```tree layout=side depth=3")
+    for k in set(opts) - {"layout", "depth"}:
+        warn(f"tree option {k!r} is ignored (options: layout, depth)")
+    want = opts.get("layout", "auto").lower()
+    if want not in TREE_LAYOUTS:
+        raise MdError(b.line, f"layout= takes one of: {', '.join(TREE_LAYOUTS)}")
+    root = parse_tree(b)
+    if "depth" in opts:
+        if not opts["depth"].isdigit():
+            raise MdError(b.line, "depth= takes a number of levels below the root")
+        _fold(root, int(opts["depth"]))
+    lay, need = choose_tree_layout(root, want, width)
+    if want == "auto":
+        cv.degraded += {"top": 0, "left": 0, "side": 1, "list": 2}[lay.kind]
+    if lay.kind == "list":
+        if want in ("top", "left", "side"):
+            warn(f"layout={want} needs {need[want]} columns, the pane has {width}: drawn as a "
+                 f"list")
+        if lay.need > width:
+            warn(f"the tree is {lay.depth} levels deep and needs {lay.need} columns, the pane "
+                 f"has {width}: fold it with depth=N")
+    lay.draw(cv, x, y)
+    return y + lay.height
+
+
 # -- panels ----------------------------------------------------------------------------------
-def d_panels(cv, b, x, y, width, notes):
+def _panels_at(b, width, side):
+    """Draw the panels' blocks side by side or stacked: (panel width, drawn, notes, degraded)."""
     n = len(b.panels)
-    side = n > 1 and (width - 2 * (n - 1)) // n >= 34
     pw = min(PANEL_W, (width - 2 * (n - 1)) // n if side else width)
-    drawn = []
+    drawn, notes, degraded = [], [], 0
     for title, ln, blocks in b.panels:
         sub = Canvas(pw - 4)
         h = draw_blocks(sub, blocks, 0, 0, pw - 4, notes)
+        degraded += sub.degraded
         drawn.append((title, sub, h))
+    return pw, drawn, notes, degraded
+
+
+def d_panels(cv, b, x, y, width, notes):
+    n = len(b.panels)
+    side = n > 1 and (width - 2 * (n - 1)) // n >= 34
+    pw, drawn, local, degraded = _panels_at(b, width, side)
+    if side and (local or degraded):          # stack them rather than lose a drawing
+        alt = _panels_at(b, width, False)
+        if (len(set(alt[2])), alt[3]) < (len(set(local)), degraded):
+            side = False
+            pw, drawn, local, degraded = alt
+    notes.extend(local)
     H = max(h for _, _, h in drawn)
     for i, (title, sub, h) in enumerate(drawn):
         px, ph = (x + i * (pw + 2), H) if side else (x, h)
@@ -1013,7 +1350,7 @@ def d_panels(cv, b, x, y, width, notes):
 
 DRAW = {"h2": d_h2, "h3": d_h3, "p": d_p, "note": d_note, "li": d_li, "hr": d_hr,
         "code": d_code, "table": d_table, "bars": d_bars, "flow": d_flow, "seq": d_seq,
-        "panels": d_panels}
+        "tree": d_tree, "panels": d_panels}
 
 
 def preview(text, widths):

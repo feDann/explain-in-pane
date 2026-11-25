@@ -46,6 +46,18 @@ PURPLE_FILL = "#6a2f94"
 CELL, HATCH_BG, HATCH_LN = "#262830", "#202127", "#3a3d48"
 PALETTE = [CYAN, YELLOW, LIME, PURPLE, ORANGE, "#43aa8b", "#f28482", "#a0c4ff"]
 EIGHTHS = " ▏▎▍▌▋▊▉█"
+# Line characters by the sides they reach (l r u d), for joined_path().
+DIRS = {"─": "lr", "│": "ud", "╭": "rd", "╮": "ld", "╰": "ur", "╯": "ul", "┼": "udlr",
+        "├": "udr", "┤": "udl", "┬": "lrd", "┴": "lru"}
+JOIN = {frozenset(v): k for k, v in DIRS.items()}
+JOIN.update({frozenset("l"): "─", frozenset("r"): "─", frozenset("u"): "│", frozenset("d"): "│"})
+HEADS = {"r": "▶", "l": "◀", "d": "▼", "u": "▲"}
+OPP = {"l": "r", "r": "l", "u": "d", "d": "u"}
+
+
+def _towards(p, q):
+    """The side of point `p` that the point `q` lies on, for two points on a line."""
+    return "r" if q[0] > p[0] else "l" if q[0] < p[0] else "d" if q[1] > p[1] else "u"
 
 
 def rgb(h):
@@ -81,6 +93,9 @@ class Canvas:
         self.cells = []
         self.warnings = []
         self._hits = []
+        self._lines = set()           # cells joined_path() drew, so later paths can join them
+        self.degraded = 0             # how far drawings fell back to plainer text (a tree as a
+                                      # list): panels stack rather than let it happen
         self._grow(h)
 
     @property
@@ -236,6 +251,35 @@ class Canvas:
             mark(pts[-1], "▶" if xb > xa else "◀" if xb < xa else "▼" if yb > ya else "▲")
         self._hits = [h for h in self._hits if h[3] not in "─│" or h[4] not in "─│╭╮╰╯"]
         self._report("path", *pts[0])
+
+    def joined_path(self, pts, color=MUTED, head=True):
+        """Right-angle line through `pts`, joining lines that earlier calls drew (┼ ├ ┬ ┴ ...).
+
+        Two paths that share a stretch or cross make one connector: use it for trees and
+        flows. With head=False the last point is left undrawn, so a box border can go there.
+        Returns the cells the line passes.
+        """
+        seq = [pts[0]]
+        for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+            while (xa, ya) != (xb, yb):
+                xa += (xb > xa) - (xb < xa)
+                ya += (yb > ya) - (yb < ya)
+                seq.append((xa, ya))
+        if len(seq) < 2:
+            return seq
+        for j, (px, py) in enumerate(seq[:-1]):
+            d = {_towards(seq[j], seq[j + 1])}
+            d.add(_towards(seq[j], seq[j - 1]) if j else OPP[_towards(seq[0], seq[1])])
+            if (px, py) in self._lines and 0 <= py < self.h and 0 <= px < self.w:
+                d |= set(DIRS.get(self.cells[py][px][0], ""))
+                self.cells[py][px][0] = JOIN.get(frozenset(d), "┼")
+                self.cells[py][px][1] = color
+            else:
+                self.put(px, py, JOIN.get(frozenset(d), "─"), color)
+                self._lines.add((px, py))
+        if head:
+            self.put(*seq[-1], HEADS[_towards(seq[-2], seq[-1])], color)
+        return seq
 
     # -- bars ------------------------------------------------------------------------
     def stacked(self, x0, y, parts, unit, cap=None, label=None, label_x=None, suffix=""):

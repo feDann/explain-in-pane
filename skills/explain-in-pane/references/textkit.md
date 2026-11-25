@@ -17,7 +17,7 @@
 | `viewer.py` | Runs in the explain pane until it is closed and draws the focused page at the pane's size. |
 | `textkit.py` | The drawing layer under both: `Canvas`, boxes, arrows, bars, `Raster`. |
 | `session-start.sh` | A session-start hook. Inside herdr it tells the agent that the pane is available. |
-| `example.md` | Every Markdown block, on two pages. |
+| `example.md` | Every Markdown block, on three pages. |
 | `example_bands.py` | A custom Python drawing: before and after panels with bands. |
 
 ## The viewer
@@ -101,6 +101,7 @@ example.
 | `harrow(x1, x2, y, label, color, label_row=-1)` | horizontal arrow, head at `x2` | |
 | `varrow(x, y1, y2, label, color)` | vertical arrow, head at `y2` | |
 | `path(pts, color, head=True)` | right-angle path through `[(x, y), ...]` | |
+| `joined_path(pts, color, head=True)` | the same, but it joins lines drawn by earlier calls (`┼ ├ ┬ ┴`); `head=False` leaves the last point undrawn | the cells |
 | `stacked(x0, y, parts, unit, cap, label, label_x, suffix)` | one bar row; `parts = [(value, color, name)]` | |
 | `cap_line(x, y1, y2, label)` | red limit line across bar rows | |
 | `legend(x, y, [(color, label)], width)` | colour keys, wrapped | y below |
